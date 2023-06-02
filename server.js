@@ -35,7 +35,7 @@ const shouldStartQuiz = (dateString, timeString) => {
   return (
     currentTime >= targetDate &&
     currentTime.getHours() === targetTime.getHours() &&
-    currentTime.getMinutes() === targetTime.getMinutes()
+    (currentTime.getMinutes() === targetTime.getMinutes())
   );
 };
 
