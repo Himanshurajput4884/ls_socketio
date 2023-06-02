@@ -48,93 +48,134 @@ const getTables = async () => {
     return [];
   }
 
-  const ques = await client.execute(`SELECT * FROM fastquizquestiontable;`);
-  console.log(ques.rows);
-  return ques.rows;
+  const data = response.rows;
+
+  const quizQuestions = await Promise.all(
+    data.map(async (v) => {
+      if (shouldStartQuiz(v.date, v.time)) {
+        const tableName = v.quizname + "questiontable";
+        const query = `SELECT * FROM ${tableName}`;
+        const result = await client.execute(query);
+        return result.rows;
+      }
+      return undefined; // Return undefined for non-matching quizzes
+    })
+  );
+
+  const filteredQuizQuestions = quizQuestions.filter((questions) => questions !== undefined);
+
+  return filteredQuizQuestions.flat();
 };
 
-let currentQuestionIndex = -1;
 let questionTimer;
-const questionInterval = 60 * 1000; // 60 seconds
+let questionStartTime;
+const questionInterval = 60 * 1000;
+const participants = [];
 
 io.on("connection", async (socket) => {
-  console.log("A client connected");
+  console.log("A client connected: ", socket.id);
   const quizQuestions = await getTables();
 
+  console.log("QuizQuestions in io: ", quizQuestions[0]);
+  const participant = {
+    socketId: socket.id,
+    score: 0,
+    questionIndex: 0,
+  };
+  console.log(participant);
+  participants.push(participant);
   socket.on("startQuiz", () => {
     // Delay the start of the quiz by 5 minutes
     setTimeout(() => {
-      sendNextQuestion(socket, quizQuestions);
-    }, 5000);
+      sendNextQuestion(participant, quizQuestions);
+    }, 2000);
   });
 
   socket.on("answer", (data) => {
     clearTimeout(questionTimer);
 
     // Check the answer and calculate the score
-    const currentQuestion = quizQuestions[currentQuestionIndex];
-    const score = data.answer === currentQuestion.answer ? 100 : 0;
+    const currentQuestion = quizQuestions[participant.questionIndex];
 
-    console.log("Received answer:", data, "Score:", score);
-
+    console.log(data);
     // Send the score back to the client
-    socket.emit("score", { score });
+    const responseTime = data.responseTime;
+    const timeRatio = 1 - responseTime / 60;
+    console.log(timeRatio);
+    // Calculate the score based on response time and correctness
+    const score =
+      data.answer === currentQuestion.answer ? Math.floor(100 * timeRatio) : 0;
+
+    // Update participant's score
+    participant.score += score;
+    console.log("Received answer:", data, "Score:", score);
+    socket.emit("score", { score: participant.score });
 
     // Proceed to the next question or end the quiz if all questions have been asked
-    if (currentQuestionIndex < quizQuestions.length - 1) {
-      sendNextQuestion(socket, quizQuestions);
+    participant.questionIndex++;
+    if (participant.questionIndex >= quizQuestions.length) {
+      endQuizForParticipant(participant);
     } else {
-      endQuiz(socket);
+      sendNextQuestion(participant, quizQuestions);
     }
   });
 
   socket.on("disconnect", () => {
-    console.log("A client disconnected");
+    console.log("A client disconnected: ", socket.id);
+    const index = participants.findIndex((p) => p.socketId === socket.id);
+    if (index !== -1) {
+      participants.splice(index, 1);
+    }
     clearTimeout(questionTimer);
   });
 });
 
-function sendNextQuestion(socket, quizQuestions) {
-  currentQuestionIndex++;
+function sendNextQuestion(participant, quizQuestions) {
+  const { socketId, questionIndex } = participant;
 
-  if (currentQuestionIndex >= quizQuestions.length) {
-    // All questions have been asked, end the quiz
-    endQuiz(socket);
+  if (questionIndex >= quizQuestions.length) {
+    // All questions have been answered by the participant, end the quiz for that participant
+    endQuizForParticipant(participant);
     return;
   }
-
-  const currentQuestion = quizQuestions[currentQuestionIndex];
+  const currentQuestion = quizQuestions[questionIndex];
+  // console.log(currentQuestion);
   const questionData = {
     question: currentQuestion.question,
     options: [currentQuestion.opt1, currentQuestion.opt2, currentQuestion.opt3],
     timeLimit: questionInterval / 1000, // Convert milliseconds to seconds
   };
 
-  // Send the question data to the client
-  socket.emit("question", questionData);
+  io.to(socketId).emit("question", questionData);
 
-  // Start the timer for the question
+  questionStartTime = Date.now();
   questionTimer = setTimeout(() => {
     // Time's up, consider it as an unanswered question
     const score = 0;
-    console.log("Time's up! Score:", score);
+    participant.score += score;
 
-    // Send the score back to the client
-    socket.emit("score", { score });
+    // Send the score back to the participant
+    io.to(socketId).emit("score", { score: participant.score });
 
-    // Proceed to the next question or end the quiz if all questions have been asked
-    if (currentQuestionIndex < quizQuestions.length - 1) {
-      sendNextQuestion(socket, quizQuestions);
+    // Proceed to the next question or end the quiz for the participant
+    participant.questionIndex++;
+    if (participant.questionIndex >= quizQuestions.length) {
+      endQuizForParticipant(participant);
     } else {
-      endQuiz(socket);
+      sendNextQuestion(participant, quizQuestions); // Pass `quizQuestions` parameter here
     }
   }, questionInterval);
 }
 
-function endQuiz(socket) {
-  console.log("Quiz ended");
-  // Perform any necessary cleanup or final calculations here
-  // ...
+function endQuizForParticipant(participant) {
+  console.log(`Quiz ended for participant: ${participant.socketId}`);
+  // Remove the participant from the participants array
+  const index = participants.findIndex(
+    (p) => p.socketId === participant.socketId
+  );
+  if (index !== -1) {
+    participants.splice(index, 1);
+  }
 }
 
 const PORT = 8007;
