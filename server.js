@@ -58,7 +58,7 @@ const getTables = async () => {
         const result = await client.execute(query);
         return result.rows;
       }
-      return undefined; // Return undefined for non-matching quizzes
+      return undefined; 
     })
   );
 
@@ -85,7 +85,7 @@ io.on("connection", async (socket) => {
   console.log(participant);
   participants.push(participant);
   socket.on("startQuiz", () => {
-    // Delay the start of the quiz by 5 minutes
+
     setTimeout(() => {
       sendNextQuestion(participant, quizQuestions);
     }, 2000);
@@ -94,24 +94,24 @@ io.on("connection", async (socket) => {
   socket.on("answer", (data) => {
     clearTimeout(questionTimer);
 
-    // Check the answer and calculate the score
+
     const currentQuestion = quizQuestions[participant.questionIndex];
 
     console.log(data);
-    // Send the score back to the client
+ 
     const responseTime = data.responseTime;
-    const timeRatio = 1 - responseTime / 60;
+    const timeRatio = responseTime / 60;
     console.log(timeRatio);
-    // Calculate the score based on response time and correctness
+   
     const score =
       data.answer === currentQuestion.answer ? Math.floor(100 * timeRatio) : 0;
 
-    // Update participant's score
-    participant.score += score;
+
+    participant.score = participant.score+score;
     console.log("Received answer:", data, "Score:", score);
     socket.emit("score", { score: participant.score });
 
-    // Proceed to the next question or end the quiz if all questions have been asked
+  
     participant.questionIndex++;
     if (participant.questionIndex >= quizQuestions.length) {
       endQuizForParticipant(participant);
@@ -134,12 +134,12 @@ function sendNextQuestion(participant, quizQuestions) {
   const { socketId, questionIndex } = participant;
 
   if (questionIndex >= quizQuestions.length) {
-    // All questions have been answered by the participant, end the quiz for that participant
+ 
     endQuizForParticipant(participant);
     return;
   }
   const currentQuestion = quizQuestions[questionIndex];
-  // console.log(currentQuestion);
+
   const questionData = {
     question: currentQuestion.question,
     options: [currentQuestion.opt1, currentQuestion.opt2, currentQuestion.opt3],
@@ -150,14 +150,14 @@ function sendNextQuestion(participant, quizQuestions) {
 
   questionStartTime = Date.now();
   questionTimer = setTimeout(() => {
-    // Time's up, consider it as an unanswered question
+   
     const score = 0;
-    participant.score += score;
+    participant.score = participant.score+score;
 
-    // Send the score back to the participant
+  
     io.to(socketId).emit("score", { score: participant.score });
 
-    // Proceed to the next question or end the quiz for the participant
+ 
     participant.questionIndex++;
     if (participant.questionIndex >= quizQuestions.length) {
       endQuizForParticipant(participant);
@@ -169,7 +169,7 @@ function sendNextQuestion(participant, quizQuestions) {
 
 function endQuizForParticipant(participant) {
   console.log(`Quiz ended for participant: ${participant.socketId}`);
-  // Remove the participant from the participants array
+
   const index = participants.findIndex(
     (p) => p.socketId === participant.socketId
   );
