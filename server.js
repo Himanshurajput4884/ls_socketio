@@ -71,9 +71,11 @@ let questionTimer;
 let questionStartTime;
 const questionInterval = 60 * 1000;
 const participants = [];
+const leaderboard = new Map();
 
 io.on("connection", async (socket) => {
   console.log("A client connected: ", socket.id);
+  const { username } = socket.handshake.auth;
   const quizQuestions = await getTables();
 
   console.log("QuizQuestions in io: ", quizQuestions[0]);
@@ -81,11 +83,11 @@ io.on("connection", async (socket) => {
     socketId: socket.id,
     score: 0,
     questionIndex: 0,
+    username: username,
   };
   console.log(participant);
   participants.push(participant);
   socket.on("startQuiz", () => {
-
     setTimeout(() => {
       sendNextQuestion(participant, quizQuestions);
     }, 2000);
@@ -106,10 +108,11 @@ io.on("connection", async (socket) => {
     const score =
       data.answer === currentQuestion.answer ? Math.floor(100 * timeRatio) : 0;
 
-
-    participant.score = participant.score+score;
+      participant.score = participant.score+score;
+      leaderboard.set(participant.username, participant.score);
+      console.log(leaderboard);
     console.log("Received answer:", data, "Score:", score);
-    socket.emit("score", { score: participant.score });
+    socket.emit("score", { score: participant.score, leaderboard:Array.from(leaderboard) });
 
   
     participant.questionIndex++;
@@ -154,15 +157,17 @@ function sendNextQuestion(participant, quizQuestions) {
     const score = 0;
     participant.score = participant.score+score;
 
-  
-    io.to(socketId).emit("score", { score: participant.score });
+
+    leaderboard.set(participant.username, participant.score);
+    console.log(leaderboard);
+    io.to(socketId).emit("score", { score: participant.score, leaderboard:Array.from(leaderboard) });
 
  
     participant.questionIndex++;
     if (participant.questionIndex >= quizQuestions.length) {
       endQuizForParticipant(participant);
     } else {
-      sendNextQuestion(participant, quizQuestions); // Pass `quizQuestions` parameter here
+      sendNextQuestion(participant, quizQuestions); 
     }
   }, questionInterval);
 }
